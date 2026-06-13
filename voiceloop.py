@@ -30,9 +30,9 @@ CHANNELS = 1
 SILENCE_THRESHOLD = 500
 SILENCE_DURATION = 1.5
 MAX_RECORD_SECONDS = 30
-RAG_MAX_CHARS = 4000
-RAG_NUM_CHUNKS = 1
-MAX_TOKENS = 150
+RAG_MAX_CHARS = 6000
+RAG_NUM_CHUNKS = 2
+MAX_TOKENS = 300
 
 DEFAULT_SYSTEM = """You are a voice assistant in a live conversation. RULES:
 - Answer in 2-3 sentences MAX. This is spoken aloud — not a document.
@@ -41,12 +41,12 @@ DEFAULT_SYSTEM = """You are a voice assistant in a live conversation. RULES:
 - Be direct. Swear if it fits. No filler."""
 
 RAG_SYSTEM = """You are VADER — a cybersecurity tutor in a live voice conversation. RULES:
-- Answer in 2-3 sentences MAX. This is spoken aloud — not a document.
-- No markdown. No headers. No bullet points. No code blocks. No URLs.
-- Plain spoken English only. Explain like you're talking to someone, not writing a manual.
-- Use the reference material below to answer accurately, but SUMMARISE — don't recite it.
-- If asked to go deeper, give one more layer of detail. Still short.
-- Be direct. Swear if it fits. Teach like a sergeant."""
+- Answer in 3-5 sentences. This is spoken aloud — not a document.
+- No markdown. No headers. No bullet points. No code blocks. No URLs. No numbered lists.
+- Plain spoken English only. Explain like you're talking to someone at a whiteboard.
+- Use the reference material below to answer accurately. Summarise the key concept, then explain WHY it matters.
+- If the user asks to go deeper, give the next layer of technical detail.
+- Be direct. Swear if it fits. Teach like a sergeant, not a textbook."""
 
 # --- Globals ---
 tts_engine = None
@@ -100,12 +100,14 @@ def load_rag_folder(folder_path):
         with open(f, "r", encoding="utf-8", errors="replace") as fh:
             content = fh.read()
         title = name.replace(".md", "").replace("_", " ")
-        keywords = set(re.findall(r'[a-z]{3,}', (title + " " + content[:2000]).lower()))
+        keywords = set(re.findall(r'[a-z]{3,}', (title + " " + content).lower()))
+        title_words = set(re.findall(r'[a-z]{3,}', title.lower()))
         chunks.append({
             "name": name,
             "title": title,
             "content": content,
             "keywords": keywords,
+            "title_words": title_words,
             "chars": len(content)
         })
 
@@ -117,21 +119,62 @@ def load_rag_folder(folder_path):
     return chunks
 
 
+STOP_WORDS = {
+    "the", "and", "how", "can", "you", "what", "this", "that", "with",
+    "for", "are", "from", "have", "has", "was", "were", "been", "being",
+    "does", "did", "will", "would", "could", "should", "may", "might",
+    "about", "into", "through", "during", "before", "after", "above",
+    "below", "between", "under", "again", "further", "then", "once",
+    "here", "there", "when", "where", "why", "all", "each", "every",
+    "both", "few", "more", "most", "other", "some", "such", "only",
+    "same", "than", "too", "very", "just", "because", "but", "not",
+    "also", "like", "explain", "tell", "describe", "know", "please",
+    "think", "really", "actually", "basically", "something", "anything",
+}
+
+
 def retrieve_context(question, num_chunks=RAG_NUM_CHUNKS, max_chars=RAG_MAX_CHARS):
     if not rag_chunks:
         return ""
 
-    q_words = set(re.findall(r'[a-z]{3,}', question.lower()))
+    q_words = set(re.findall(r'[a-z]{3,}', question.lower())) - STOP_WORDS
+
+    doc_freq = {}
+    for chunk in rag_chunks:
+        for kw in chunk["keywords"]:
+            doc_freq[kw] = doc_freq.get(kw, 0) + 1
+    total_docs = len(rag_chunks)
+
     scored = []
     for chunk in rag_chunks:
-        overlap = len(q_words & chunk["keywords"])
-        scored.append((overlap, chunk))
+        score = 0
+        matched = []
+        for qw in q_words:
+            best_hit = 0
+            title_bonus = 3.0 if qw in chunk["title_words"] else 1.0
+            if qw in chunk["keywords"]:
+                idf = total_docs / max(doc_freq.get(qw, 1), 1)
+                best_hit = 2 * idf * title_bonus
+            else:
+                for kw in chunk["title_words"] | chunk["keywords"]:
+                    if len(qw) >= 4 and len(kw) >= 4:
+                        tb = 3.0 if kw in chunk["title_words"] else 1.0
+                        if qw in kw or kw in qw:
+                            idf = total_docs / max(doc_freq.get(kw, 1), 1)
+                            best_hit = max(best_hit, 1.5 * idf * tb)
+                        elif qw[1:] == kw[1:] or qw[:-1] == kw[:-1]:
+                            idf = total_docs / max(doc_freq.get(kw, 1), 1)
+                            best_hit = max(best_hit, 1.0 * idf * tb)
+            if best_hit > 0:
+                score += best_hit
+                matched.append(qw)
+        scored.append((score, chunk, matched))
 
     scored.sort(key=lambda x: x[0], reverse=True)
     selected = []
     total_chars = 0
 
-    for score, chunk in scored[:num_chunks]:
+    for score, chunk, matched in scored[:num_chunks]:
         if score == 0:
             break
         text = chunk["content"]
@@ -143,11 +186,13 @@ def retrieve_context(question, num_chunks=RAG_NUM_CHUNKS, max_chars=RAG_MAX_CHAR
                 break
         selected.append(f"## {chunk['title']}\n{text}")
         total_chars += len(text)
+        print(f"[rag] -> {chunk['name']} (score {score:.1f}, matched: {matched})", flush=True)
 
     if not selected:
         best = scored[0][1] if scored else rag_chunks[0]
         text = best["content"][:max_chars]
         selected.append(f"## {best['title']}\n{text}\n[...truncated]")
+        print(f"[rag] -> {best['name']} (fallback)", flush=True)
 
     return "\n\n".join(selected)
 
