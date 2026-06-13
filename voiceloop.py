@@ -16,7 +16,7 @@ import time
 import argparse
 import numpy as np
 import sounddevice as sd
-import pyttsx3
+import subprocess
 import requests
 from faster_whisper import WhisperModel
 
@@ -49,42 +49,24 @@ RAG_SYSTEM = """You are VADER — a cybersecurity tutor in a live voice conversa
 - Be direct. Swear if it fits. Teach like a sergeant, not a textbook."""
 
 # --- Globals ---
-tts_engine = None
+SPEAK_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "speak.ps1")
 conversation = []
 rag_chunks = []
-
-
-def init_tts():
-    global tts_engine
-    tts_engine = pyttsx3.init("sapi5")
-    voices = tts_engine.getProperty("voices")
-    for v in voices:
-        if "david" in v.name.lower() or "mark" in v.name.lower():
-            tts_engine.setProperty("voice", v.id)
-            break
-    tts_engine.setProperty("rate", 200)
-    tts_engine.setProperty("volume", 1.0)
 
 
 def speak(text):
     clean = re.sub(r'[#*_`~\[\]()>|]', '', text).strip()
     if not clean:
-        print("[tts] nothing to speak (empty after clean)", flush=True)
         return
     print(f"[speaking] {clean[:80]}{'...' if len(clean) > 80 else ''}", flush=True)
     try:
-        engine = pyttsx3.init("sapi5")
-        voices = engine.getProperty("voices")
-        for v in voices:
-            if "david" in v.name.lower() or "mark" in v.name.lower():
-                engine.setProperty("voice", v.id)
-                break
-        engine.setProperty("rate", 200)
-        engine.setProperty("volume", 1.0)
-        engine.say(clean)
-        engine.runAndWait()
-        engine.stop()
+        subprocess.run(
+            ["powershell", "-NoProfile", "-File", SPEAK_SCRIPT, "-text", clean],
+            timeout=60
+        )
         print("[spoken]", flush=True)
+    except subprocess.TimeoutExpired:
+        print("[tts] timed out", flush=True)
     except Exception as e:
         print(f"[tts error] {type(e).__name__}: {e}", flush=True)
 
@@ -342,17 +324,7 @@ def main():
     if args.rag:
         rag_chunks = load_rag_folder(args.rag)
 
-    init_tts()
-
-    print("[tts] Testing SAPI...", flush=True)
-    try:
-        tts_engine.say("Online.")
-        tts_engine.runAndWait()
-        print("[tts] SAPI OK — you should have heard 'Online'", flush=True)
-    except Exception as e:
-        print(f"[tts] SAPI FAILED: {type(e).__name__}: {e}", flush=True)
-        print("[tts] Continuing without voice output", flush=True)
-
+    speak("Online.")
     whisper_model = init_whisper()
 
     while True:
