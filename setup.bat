@@ -52,16 +52,21 @@ if errorlevel 1 (
     echo [WARN] No microphone detected. Plug one in before running.
 )
 
-:: Test SAPI
+:: Test TTS (System.Speech via PowerShell)
 echo.
 echo Testing Windows TTS...
-python -c "import pyttsx3; e = pyttsx3.init('sapi5'); print('[OK] SAPI TTS working')" 2>nul
+powershell -NoProfile -File speak.ps1 -text "TTS test passed" 2>nul
+if errorlevel 1 (
+    echo [WARN] System.Speech TTS failed. Check PowerShell is available.
+) else (
+    echo [OK] System.Speech TTS working
+)
 
 echo.
 echo ============================================
 echo  Setup complete. Run with:
 echo    python voiceloop.py
 echo  With RAG:
-echo    python voiceloop.py --rag path/to/markdown/folder
+echo    python voiceloop.py --rag path\to\markdown\folder
 echo ============================================
 pause

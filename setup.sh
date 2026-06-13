@@ -16,10 +16,13 @@ echo
 echo "Installing dependencies..."
 pip3 install -r requirements.txt
 
-# espeak for Linux TTS (pyttsx3 uses espeak on Linux)
+# Linux TTS: espeak-ng (speak.ps1 is Windows-only, Linux needs espeak)
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     echo
-    echo "Installing espeak-ng for Linux TTS..."
+    echo "[NOTE] TTS on Linux requires espeak-ng or a custom speak script."
+    echo "       The included speak.ps1 is Windows-only (System.Speech)."
+    echo "       Install espeak-ng: sudo apt install espeak-ng"
+    echo "       Then modify voiceloop.py speak() to call espeak instead."
     sudo apt-get install -y espeak-ng portaudio19-dev 2>/dev/null || echo "[WARN] Install espeak-ng and portaudio manually"
 fi
 

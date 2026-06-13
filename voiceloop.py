@@ -3,7 +3,7 @@
 VoiceLoop — Local 2-way voice conversation with RAG
 STT: faster-whisper (offline)
 LLM: Ollama (local)
-TTS: Windows SAPI via pyttsx3 (streams sentence-by-sentence)
+TTS: Windows System.Speech via PowerShell subprocess (speak.ps1)
 RAG: loads .md files, keyword-matches relevant chunks per question
 """
 
