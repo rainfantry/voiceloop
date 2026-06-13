@@ -12,10 +12,8 @@ import os
 import re
 import glob
 import json
-import threading
 import time
 import argparse
-import queue
 import numpy as np
 import sounddevice as sd
 import pyttsx3
@@ -52,8 +50,6 @@ RAG_SYSTEM = """You are VADER — a cybersecurity tutor in a live voice conversa
 
 # --- Globals ---
 tts_engine = None
-tts_lock = threading.Lock()
-speaking = threading.Event()
 conversation = []
 rag_chunks = []
 
@@ -71,37 +67,14 @@ def init_tts():
 
 
 def speak(text):
-    with tts_lock:
-        speaking.set()
-        try:
-            tts_engine.say(text)
-            tts_engine.runAndWait()
-        except Exception:
-            pass
-        finally:
-            speaking.clear()
-
-
-def speak_streaming(sentence_queue):
-    with tts_lock:
-        speaking.set()
-        try:
-            while True:
-                try:
-                    sentence = sentence_queue.get(timeout=15)
-                except Exception:
-                    break
-                if sentence is None:
-                    break
-                clean = re.sub(r'[#*_`~\[\]()>|]', '', sentence).strip()
-                if not clean:
-                    continue
-                tts_engine.say(clean)
-                tts_engine.runAndWait()
-        except Exception:
-            pass
-        finally:
-            speaking.clear()
+    clean = re.sub(r'[#*_`~\[\]()>|]', '', text).strip()
+    if not clean:
+        return
+    try:
+        tts_engine.say(clean)
+        tts_engine.runAndWait()
+    except Exception as e:
+        print(f"[tts error] {e}", flush=True)
 
 
 def init_whisper():
@@ -226,7 +199,7 @@ def transcribe(model, audio):
     return text
 
 
-def query_ollama_streaming(user_text, sentence_queue):
+def query_ollama(user_text):
     conversation.append({"role": "user", "content": user_text})
 
     if rag_chunks:
@@ -250,8 +223,8 @@ def query_ollama_streaming(user_text, sentence_queue):
         }, stream=True, timeout=120)
 
         full_response = []
-        buffer = ""
-        sys.stdout.write("[vader] " if rag_chunks else "[ai] ")
+        tag = "[vader] " if rag_chunks else "[ai] "
+        sys.stdout.write(tag)
 
         for line in resp.iter_lines():
             if line:
@@ -260,23 +233,9 @@ def query_ollama_streaming(user_text, sentence_queue):
                 full_response.append(token)
                 sys.stdout.write(token)
                 sys.stdout.flush()
-
-                buffer += token
-                sentences = re.split(r'(?<=[.!?])\s+', buffer)
-                if len(sentences) > 1:
-                    for s in sentences[:-1]:
-                        clean = s.strip()
-                        if clean and len(clean) > 3:
-                            sentence_queue.put(clean)
-                    buffer = sentences[-1]
-
                 if data.get("done"):
                     break
 
-        if buffer.strip() and len(buffer.strip()) > 3:
-            sentence_queue.put(buffer.strip())
-
-        sentence_queue.put(None)
         print(flush=True)
 
         response_text = "".join(full_response)
@@ -285,8 +244,6 @@ def query_ollama_streaming(user_text, sentence_queue):
 
     except Exception as e:
         print(f"\n[error] Ollama: {e}", flush=True)
-        sentence_queue.put("Ollama didn't respond.")
-        sentence_queue.put(None)
         return "Ollama didn't respond."
 
 
@@ -345,12 +302,9 @@ def main():
                 speak("Offline.")
                 break
 
-            sentence_q = queue.Queue()
-            tts_thread = threading.Thread(target=speak_streaming,
-                                          args=(sentence_q,), daemon=True)
-            tts_thread.start()
-            query_ollama_streaming(text, sentence_q)
-            tts_thread.join(timeout=60)
+            response = query_ollama(text)
+            if response:
+                speak(response)
 
         except KeyboardInterrupt:
             print("\n[killed]", flush=True)

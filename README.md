@@ -4,6 +4,8 @@ Local 2-way voice conversation with any Ollama model. No cloud. No API keys. No 
 
 You talk → Whisper transcribes → Ollama thinks → SAPI speaks back. Loop.
 
+![VoiceLoop in action](screenshot.png)
+
 Optional: load a folder of markdown files as RAG context so the model can reference your notes, research, or documentation during the conversation.
 
 ## Build Journal
