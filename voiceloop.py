@@ -73,8 +73,17 @@ def speak(text):
         return
     print(f"[speaking] {clean[:80]}{'...' if len(clean) > 80 else ''}", flush=True)
     try:
-        tts_engine.say(clean)
-        tts_engine.runAndWait()
+        engine = pyttsx3.init("sapi5")
+        voices = engine.getProperty("voices")
+        for v in voices:
+            if "david" in v.name.lower() or "mark" in v.name.lower():
+                engine.setProperty("voice", v.id)
+                break
+        engine.setProperty("rate", 200)
+        engine.setProperty("volume", 1.0)
+        engine.say(clean)
+        engine.runAndWait()
+        engine.stop()
         print("[spoken]", flush=True)
     except Exception as e:
         print(f"[tts error] {type(e).__name__}: {e}", flush=True)
@@ -271,6 +280,7 @@ def query_ollama(user_text):
         }, stream=True, timeout=120)
 
         full_response = []
+        token_count = 0
         tag = "[vader] " if rag_chunks else "[ai] "
         sys.stdout.write(tag)
 
@@ -279,14 +289,18 @@ def query_ollama(user_text):
                 data = json.loads(line)
                 token = data.get("message", {}).get("content", "")
                 full_response.append(token)
+                token_count += 1
                 sys.stdout.write(token)
                 sys.stdout.flush()
                 if data.get("done"):
                     break
+                if token_count >= MAX_TOKENS:
+                    resp.close()
+                    break
 
         print(flush=True)
 
-        response_text = "".join(full_response)
+        response_text = "".join(full_response).rstrip()
         conversation.append({"role": "assistant", "content": response_text})
         return response_text
 
