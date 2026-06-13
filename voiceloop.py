@@ -69,12 +69,15 @@ def init_tts():
 def speak(text):
     clean = re.sub(r'[#*_`~\[\]()>|]', '', text).strip()
     if not clean:
+        print("[tts] nothing to speak (empty after clean)", flush=True)
         return
+    print(f"[speaking] {clean[:80]}{'...' if len(clean) > 80 else ''}", flush=True)
     try:
         tts_engine.say(clean)
         tts_engine.runAndWait()
+        print("[spoken]", flush=True)
     except Exception as e:
-        print(f"[tts error] {e}", flush=True)
+        print(f"[tts error] {type(e).__name__}: {e}", flush=True)
 
 
 def init_whisper():
@@ -326,9 +329,17 @@ def main():
         rag_chunks = load_rag_folder(args.rag)
 
     init_tts()
-    whisper_model = init_whisper()
 
-    speak("Online. Talk to me.")
+    print("[tts] Testing SAPI...", flush=True)
+    try:
+        tts_engine.say("Online.")
+        tts_engine.runAndWait()
+        print("[tts] SAPI OK — you should have heard 'Online'", flush=True)
+    except Exception as e:
+        print(f"[tts] SAPI FAILED: {type(e).__name__}: {e}", flush=True)
+        print("[tts] Continuing without voice output", flush=True)
+
+    whisper_model = init_whisper()
 
     while True:
         try:
